@@ -1,0 +1,482 @@
+
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+    .line {
+        fill: none;
+        stroke: steelblue;
+        stroke-width: 1.5px;
+    }
+
+    .zoom {
+        cursor: move;
+        fill: none;
+        pointer-events: all;
+    }
+</style>
+<div id="statuscode_legend"></div>
+<svg id="svg-container" style="margin:auto; border: 1px solid black;"><!-- Code injected by live-server -->
+<script type="text/javascript">
+	// <![CDATA[  <-- For SVG support
+	if ('WebSocket' in window) {
+		(function() {
+			function refreshCSS() {
+				var sheets = [].slice.call(document.getElementsByTagName("link"));
+				var head = document.getElementsByTagName("head")[0];
+				for (var i = 0; i < sheets.length; ++i) {
+					var elem = sheets[i];
+					head.removeChild(elem);
+					var rel = elem.rel;
+					if (elem.href && typeof rel != "string" || rel.length == 0 || rel.toLowerCase() == "stylesheet") {
+						var url = elem.href.replace(/(&|\?)_cacheOverride=\d+/, '');
+						elem.href = url + (url.indexOf('?') >= 0 ? '&' : '?') + '_cacheOverride=' + (new Date().valueOf());
+					}
+					head.appendChild(elem);
+				}
+			}
+			var protocol = window.location.protocol === 'http:' ? 'ws://' : 'wss://';
+			var address = protocol + window.location.host + window.location.pathname + '/ws';
+			var socket = new WebSocket(address);
+			socket.onmessage = function(msg) {
+				if (msg.data == 'reload') window.location.reload();
+				else if (msg.data == 'refreshcss') refreshCSS();
+			};
+			console.log('Live reload enabled.');
+		})();
+	}
+	// ]]>
+</script>
+</svg>
+<script type="text/javascript" src="//unpkg.com/d3@5.7.0/dist/d3.js"></script>
+<script type="text/javascript" src="render-queue.js"></script>
+<script src="https://d3js.org/d3-scale-chromatic.v1.min.js"></script>
+<!--<script src="https://d3js.org/d3.v4.js"></script>-->
+<script>
+
+    var margin = { top: 20, right: 20, left: 40 },
+        width = 1200,
+        height = 600,
+        margin = { top: 20, right: 20, left: 40 },
+        width2 = 1200,
+        height2 = 200
+
+    var b = '1px solid black'
+
+    var render = renderQueue(plot).rate(30000).clear(clear_canvas)
+    var render2 = renderQueue(plot2).rate(30000).clear(clear_canvas2)
+
+    var svg = d3.select('svg')
+        .attr('width', width)
+        .attr('height', height + height2 + 300)
+        .append('g')
+        .attr('width', width - margin.left + 'px')
+        .attr('height', height + height2 - margin.top + 'px')
+        .attr('x', margin.left)
+        .attr('y', margin.top)
+
+    const brush = d3.brush()
+        .extent([[0, 0], [width, height]])
+        .on("end", updateChart)
+
+    const brush_leg = d3.brush()
+        .extent([[0, 0], [width2, height2]])
+
+    var tooltip = d3.select('body')
+        .append('div')
+        .style('padding', '5px')
+        .style('position', 'absolute')
+        .style('visibility', 'hidden')
+        .style('background-color', 'white')
+
+    var hiddenCanvas = d3.select('body')
+        .append('canvas')
+        .classed('hiddenCanvas', true)
+        .attr('width', width)
+        .attr('height', height)
+        .style('display', 'none')
+
+    var hidden_context = hiddenCanvas.node().getContext('2d')
+
+    var container = svg.append('g')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('transform', 'translate(30,0)')
+
+    var con_fo = container.append('foreignObject')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('x', 0)
+        .attr('y', 0)
+        .append('xhtml:body')
+        .style('margin', 0)
+        .style('padding', 0)
+        .style('background-color', 'none')
+        .style('width', width + 'px')
+        .style('height', height + 'px')
+
+    var con_canvas = con_fo.append('canvas')
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('width', width)
+        .attr('height', height)
+
+    var con_context = con_canvas.node().getContext('2d')
+
+    var mover = svg.append('g')
+        .attr('width', width2)
+        .attr('height', height2 - margin.top)
+        .attr('transform', 'translate(30,' + (height + margin.top) + ')')
+
+    var brushLegend = svg.append('g')
+        .attr('width', width2)
+        .attr('height', height2 - margin.top)
+        .attr('transform', 'translate(30,' + (height + margin.top) + ')')
+        .call(brush_leg)
+
+    brushLegend.attr('pointer-events', 'none')
+    brushLegend.select('.overlay').attr('pointer-events', 'none')
+
+    var fo = mover.append('foreignObject')
+        .attr('width', width2)
+        .attr('height', height2)
+        .attr('x', 0)
+        .attr('y', 0)
+        .append('xhtml:body')
+        .style('margin', 0)
+        .style('padding', 0)
+        .style('background-color', 'none')
+        .style('width', width2 + 'px')
+        .style('height', height2 + 'px')
+
+    var canvas = fo.append('canvas')
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('width', width2)
+        .attr('height', height2)
+
+    //mover.append('g')
+    //            .attr('width', width2)
+    //            .attr('height', height2)
+    //            .call(brush)
+
+    var context = canvas.node().getContext('2d')
+
+
+    //var color = d3.scaleSequential().domain([1,120]).interpolator(d3.interpolatePuRd)
+    var color = d3.scaleSequential().domain([0, 100]).interpolator(d3.interpolateTurbo)
+    var statuscode_color_map = new Set()
+
+    // Brush togglek
+    //var buttonState = 'Hide brush'
+    //var button = d3.select('body')
+    //                    .append('button')
+    //                    .text('Hide brush')
+    //                    .on("click", function (){
+    //                        if (buttonState == 'Hide brush'){
+    //                            buttonState = 'Show brush'
+    //                            d3.select(this).text(buttonState)
+    //                            brushArea.style('display', 'none')            
+    //                        }else{
+    //                            buttonState = 'Hide brush'
+    //                            d3.select(this).text(buttonState)
+    //                            brushArea.style('display', 'block')            
+    //                        }
+    //                    })
+
+    var container_x = d3.scaleTime().range([0, width])
+    var container_x2 = d3.scaleTime().range([0, width])
+    var container_y = d3.scaleLinear().range([0, height])
+    var container_y2 = d3.scaleLinear().range([0, height])
+
+    var mover_x = d3.scaleTime().range([0, width2])
+    var mover_y = d3.scaleLinear().range([0, height2])
+
+    var container_ax = d3.axisBottom(container_x),
+        container_ay = d3.axisLeft(container_y)
+
+    var gX, gY, maxy, brushArea, gdata
+    var color_map = new Set()
+    var nextCol = 10
+    function genColor() {
+        var ret = [];
+        // via http://stackoverflow.com/a/15804183
+        if (nextCol < 16777215) {
+            ret.push(nextCol & 0xff); // R
+            ret.push((nextCol & 0xff00) >> 8); // G 
+            ret.push((nextCol & 0xff0000) >> 16); // B
+
+            nextCol += 5;
+        }
+        var col = "rgb(" + ret.join(',') + ")";
+        return col;
+    }
+    d3.json("./test2.json").then((rs) => {
+        //d3.json("./test22.json").then((rs) => {
+        data = []
+        sC = new Set()
+        rs.forEach(function (l, li) {
+            l.forEach(function (d, di) {
+                sC.add(d.statusCode)
+                data.push({
+                    clientName: d.clientName,
+                    s: new Date(+d.s * 1000),
+                    e: new Date(+d.e * 1000),
+                    id: d.id,
+                    statusCode: d.statusCode,
+                    l: li
+                })
+            })
+        })
+        Array.from(sC).map((d) => {
+            statuscode_color_map[d] = randomColor()
+        })
+        let tmp = Array.from(sC)
+        tmp.sort((a,b) => +a-+b)
+        console.log(tmp)
+
+        d3.select('#statuscode_legend')
+            .selectAll('span')
+            .data(tmp)
+            .enter()
+            .append('span')
+            .each(function (d,i){
+                this.innerHTML = `
+                        <div style='height:10px;width:10px;display:inline-block;background-color:${statuscode_color_map[d+'']};'></div>
+                        ${d}
+                    `
+            })
+        for (dind in data) {
+            let hiddenColor = genColor()
+            data[dind]['hiddenColor'] = hiddenColor
+            color_map[hiddenColor] = dind
+        }
+        console.log(data.slice(0, 30))
+        gdata = data
+        console.log(sC)
+
+        maxy = rs.length
+
+        container_x.domain([d3.min(data, (d) => d.s), d3.max(data, (d) => d.e)])
+        container_x2.domain([d3.min(data, (d) => d.s), d3.max(data, (d) => d.e)])
+        mover_x.domain([d3.min(data, (d) => d.s), d3.max(data, (d) => d.e)])
+
+        container_y.domain([0, maxy])
+        container_y2.domain([0, maxy])
+        mover_y.domain([0, rs.length])
+
+        gX = svg.append('g').call(container_ax)
+            .attr('transform', 'translate(30,' + (height) + ')')
+        gY = svg.append('g').call(container_ay)
+            .attr('transform', 'translate(30, 0)')
+
+        brushArea = container.append('g')
+            .attr('class', 'brush')
+            .call(brush)
+        let arr = []
+        let arr2 = []
+        data.forEach(function (d, i) {
+            context.fillStyle = statuscode_color_map[d.statusCode]
+            //context.fillStyle = color(d.statusCode%120)
+            let pos = [
+                container_x(d.s),
+                container_y(d.l),
+                container_x(d.e) - container_x(d.s),
+                container_y(d.l) - container_y(d.l - 0.8)
+            ]
+            arr.push([
+                statuscode_color_map[d.statusCode],
+                ...pos
+            ])
+            arr2.push([
+                d.hiddenColor,
+                ...pos
+            ])
+            context.fillRect(
+                mover_x(d.s),
+                mover_y(d.l),
+                mover_x(d.e) - mover_x(d.s),
+                mover_y(d.l) - mover_y(d.l - 0.8)
+            )
+        })
+        console.log(arr2.slice(0, 10))
+        render(arr)
+        render2(arr2)
+    })
+
+    var zoom_view = false
+    var last_extent = null
+    var legend_scale_x = d3.scaleLinear().domain([0, width]).range([0, width])
+    var legend_scale_y = d3.scaleLinear().domain([0, height2]).range([0, height2])
+    function updateChart() {
+        if (d3.event.sourceEvent.type === 'end') return
+        console.log('trigger', d3.event.sourceEvent)
+        const extent = d3.event.selection
+        if (extent == last_extent) return
+
+        console.log('container', container_x)
+        //for (i in extent){
+        //extent[i][1] *= 3
+        //}
+        var legend_x1, legend_x2, legend_y1, legend_y2
+        if (!extent) {
+            container_x = container_x2.copy()
+            container_y = container_y2.copy()
+            zoom_view = false
+            brushLegend.call(brush_leg.move)
+            legend_scale_x = d3.scaleLinear().domain([0, width]).range([0, width])
+            legend_scale_y = d3.scaleLinear().domain([0, height2]).range([0, height2])
+        } else {
+            for (let e of extent)
+                console.log(e)
+            legend_x1 = legend_scale_x.invert(extent[0][0])
+            legend_x2 = legend_scale_x.invert(extent[1][0])
+            legend_y1 = legend_scale_y.invert(extent[0][1] / 3)
+            legend_y2 = legend_scale_y.invert(extent[1][1] / 3)
+            zoom_view = true
+            if (zoom_view) {
+                container_x.domain([container_x.invert(extent[0][0]), container_x.invert(extent[1][0])])
+                container_y.domain([container_y.invert(extent[0][1]), container_y.invert(extent[1][1])])
+                legend_scale_x.domain([legend_x1, legend_x2])
+                legend_scale_y.domain([legend_y1, legend_y2])
+            } else {
+                container_x.domain([container_x2.invert(extent[0][0]), container_x2.invert(extent[1][0])])
+                container_y.domain([container_y2.invert(extent[0][1]), container_y2.invert(extent[1][1])])
+            }
+            brushArea.call(brush.move)
+            console.log('brush_leg X to', legend_x1, legend_x2)
+            brushLegend.call(brush_leg.move, [[legend_x1, legend_y1],
+            [legend_x2, legend_y2]])
+            brushLegend.select('.selection')
+                .attr('fill-opacity', 0.8)
+        }
+
+        gX.transition().duration(1000).call(d3.axisBottom(container_x))
+        gY.transition().duration(1000).call(d3.axisLeft(container_y))
+
+        console.log('ok')
+        //var x_dom = container_x.domain()
+        //var x_bounds = [x_dom[0], x_dom[x_dom.length-1]]
+        let arr = []
+        let arr2 = []
+        //con_context.clearRect(0,0,width,height)
+        data.forEach(function (d, i) {
+            //con_context.fillStyle = color(d.id%120)
+            //con_context.fillRect(
+            //    container_x(d.s),
+            //    container_y(d.l),
+            //    container_x(d.e)-container_x(d.s),
+            //    container_y(d.l)-container_y(d.l-0.8)
+            //)
+            let pos = [
+                container_x(d.s),
+                container_y(d.l),
+                container_x(d.e) - container_x(d.s),
+                container_y(d.l) - container_y(d.l - 0.8)
+            ]
+            arr.push([statuscode_color_map[d.statusCode], ...pos])
+            arr2.push([d.hiddenColor, ...pos])
+        })
+        render(arr)
+        render2(arr2)
+        //container
+        //    .selectAll('rect.job')
+        //    .transition().duration(1000)
+        //    .attr('x', (d) => container_x(d.s)) 
+        //    .attr('y', (d) => container_y(d.l)) 
+        //    .attr('width', (d) => container_x(d.e)-container_x(d.s))
+        //    .attr('height', (d) => container_y(d.l)-container_y(d.l-0.8))
+        last_extent = extent
+    }
+
+    container.on("mousemove", function () {
+        if (!gdata) return
+        var mouseX = d3.event.layerX || d3.event.offsetX;
+        var mouseY = d3.event.layerY || d3.event.offsetY;
+
+        var col = hidden_context.getImageData(mouseX - 40, mouseY - 45, 1, 1).data
+        var colKey = 'rgb(' + col[0] + ',' + col[1] + ',' + col[2] + ')';
+        console.log(mouseX, mouseY, colKey)
+
+        var nodeData = null
+        if (color_map[colKey] < gdata.length)
+            nodeData = gdata[color_map[colKey]]
+
+        if (nodeData) {
+            tooltip
+                .style('visibility', 'visible')
+                .style('top', mouseY + 40 + 'px')
+                .style('left', mouseX + 'px')
+                .html(`jobid: ${nodeData.id}<br>clientName: ${nodeData.clientName}<br>s: ${nodeData.s}<br>e: ${nodeData.e}<br>statusCode: ${nodeData.statusCode}`)
+        } else {
+            tooltip.style('visibility', 'hidden')
+        }
+    })
+
+    function plot(pos) {
+        con_context.fillStyle = pos[0]
+        con_context.fillRect(
+            ...pos.slice(1, 5)
+            //container_x(d.s),
+            //container_y(d.l),
+            //container_x(d.e)-container_x(d.s),
+            //container_y(d.l)-container_y(d.l-0.8)
+        )
+    }
+
+    function clear_canvas() {
+        con_context.clearRect(0, 0, width, height)
+    }
+
+    function plot2(pos) {
+        hidden_context.fillStyle = pos[0]
+        hidden_context.fillRect(
+            ...pos.slice(1, 5)
+            //container_x(d.s),
+            //container_y(d.l),
+            //container_x(d.e)-container_x(d.s),
+            //container_y(d.l)-container_y(d.l-0.8)
+        )
+    }
+
+    function clear_canvas2() {
+        hidden_context.clearRect(0, 0, width, height)
+    }
+
+    var randomColor = (function () {
+        var golden_ratio_conjugate = 0.618033988749895;
+        var h = Math.random();
+
+        var hslToRgb = function (h, s, l) {
+            var r, g, b;
+
+            if (s == 0) {
+                r = g = b = l; // achromatic
+            } else {
+                function hue2rgb(p, q, t) {
+                    if (t < 0) t += 1;
+                    if (t > 1) t -= 1;
+                    if (t < 1 / 6) return p + (q - p) * 6 * t;
+                    if (t < 1 / 2) return q;
+                    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+                    return p;
+                }
+
+                var q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+                var p = 2 * l - q;
+                r = hue2rgb(p, q, h + 1 / 3);
+                g = hue2rgb(p, q, h);
+                b = hue2rgb(p, q, h - 1 / 3);
+            }
+
+            return '#' + Math.round(r * 255).toString(16) + Math.round(g * 255).toString(16) + Math.round(b * 255).toString(16);
+        };
+
+        return function () {
+            h += golden_ratio_conjugate;
+            h %= 1;
+            return hslToRgb(h, 0.5, 0.60);
+        };
+    })();
+</script>
