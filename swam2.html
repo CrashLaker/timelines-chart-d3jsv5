@@ -1,0 +1,273 @@
+
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+ .line {
+        fill: none;
+        stroke: steelblue;
+        stroke-width: 1.5px;
+    }
+.zoom {
+  cursor: move;
+  fill: none;
+  pointer-events: all;
+}
+
+</style>
+<svg style="margin:auto; border: 1px solid black;"><!-- Code injected by live-server -->
+<script type="text/javascript">
+	// <![CDATA[  <-- For SVG support
+	if ('WebSocket' in window) {
+		(function() {
+			function refreshCSS() {
+				var sheets = [].slice.call(document.getElementsByTagName("link"));
+				var head = document.getElementsByTagName("head")[0];
+				for (var i = 0; i < sheets.length; ++i) {
+					var elem = sheets[i];
+					head.removeChild(elem);
+					var rel = elem.rel;
+					if (elem.href && typeof rel != "string" || rel.length == 0 || rel.toLowerCase() == "stylesheet") {
+						var url = elem.href.replace(/(&|\?)_cacheOverride=\d+/, '');
+						elem.href = url + (url.indexOf('?') >= 0 ? '&' : '?') + '_cacheOverride=' + (new Date().valueOf());
+					}
+					head.appendChild(elem);
+				}
+			}
+			var protocol = window.location.protocol === 'http:' ? 'ws://' : 'wss://';
+			var address = protocol + window.location.host + window.location.pathname + '/ws';
+			var socket = new WebSocket(address);
+			socket.onmessage = function(msg) {
+				if (msg.data == 'reload') window.location.reload();
+				else if (msg.data == 'refreshcss') refreshCSS();
+			};
+			console.log('Live reload enabled.');
+		})();
+	}
+	// ]]>
+</script>
+</svg>
+<script type="text/javascript" src="//unpkg.com/d3@5.7.0/dist/d3.js"></script>
+<!--<script src="https://d3js.org/d3.v4.js"></script>-->
+<script>
+
+var margin = {top: 20, right: 20, left: 40},
+    width = 1200,
+    height = 600,
+    margin = {top: 20, right: 20, left: 40},
+    width2 = 1200,
+    height2 = 200
+
+var b = '1px solid black'
+
+var svg = d3.select('svg')
+            .attr('width', width)
+            .attr('height', height+height2+300)
+            .append('g')
+            .attr('width', width-margin.left+'px')
+            .attr('height', height+height2-margin.top+'px')
+            .attr('x', margin.left)
+            .attr('y', margin.top)
+            
+const brush = d3.brush()    
+                .extent([[0,0], [width, height]])
+                .on("end", updateChart)
+
+var clip = svg.append('defs').append('svg:clipPath')
+                .attr('id', 'clip')
+                .append('svg:rect')
+                .attr('width', width)
+                .attr('height', height)
+                .attr('x', 0)
+                .attr('y', 0)
+
+var tooltip = d3.select('body')
+                .append('div')
+                .style('padding', '5px')
+                .style('position', 'absolute')
+                .style('visibility', 'hidden')
+                .style('background-color', 'white')
+
+var container = svg.append('g')
+                .attr('clip-path', 'url(#clip)')
+                .attr('width', width)
+                .attr('height', height)
+                .attr('x', 0)
+                .attr('y', 0)
+                .attr('transform', 'translate(30,0)')
+
+var mover = svg.append('g')
+                .attr('width', width2)
+                .attr('height', height2-margin.top)
+                .attr('transform', 'translate(30,'+(height+margin.top)+')')
+
+var fo = mover.append('foreignObject')
+                .attr('width', width2)
+                .attr('height', height2)
+                .attr('x', 0)
+                .attr('y', 0)
+                .append('xhtml:body')
+                .style('margin', 0)
+                .style('padding', 0)
+                .style('background-color', 'none')
+                .style('width', width2+'px')
+                .style('height', height2+'px')
+
+var canvas = fo.append('canvas')
+                .attr('x', 0)
+                .attr('y', 0)
+                .attr('width', width2)
+                .attr('height', height2)
+
+//mover.append('g')
+//            .attr('width', width2)
+//            .attr('height', height2)
+//            .call(brush)
+
+var context = canvas.node().getContext('2d')
+
+
+var color = d3.scaleSequential().domain([1,120]).interpolator(d3.interpolatePuRd)
+
+
+var container_x = d3.scaleTime().range([0,width])
+var container_x2 = d3.scaleTime().range([0,width])
+var container_y = d3.scaleLinear().range([0,height])
+var container_y2 = d3.scaleLinear().range([0,height])
+
+var mover_x = d3.scaleTime().range([0,width2])
+var mover_y = d3.scaleLinear().range([0,height2])
+
+var container_ax = d3.axisBottom(container_x),
+    container_ay = d3.axisLeft(container_y)
+
+var gX, gY, maxy, brushArea
+
+d3.json("./test2.json").then((rs) => {
+//d3.json("./test22.json", function (rs) {
+    data = []
+    sC = new Set()
+    rs.forEach(function (l,li) {
+        l.forEach(function (d,di){
+            sC.add(d.statusCode)
+            data.push({
+                clientName: d.clientName,
+                s: new Date(+d.s*1000),
+                e: new Date(+d.e*1000),
+                id: d.id,
+                statusCode: d.statusCode,
+                l: li
+            })
+        })
+    })
+    console.log(data)
+    console.log(sC)
+
+    maxy = rs.length
+
+    container_x.domain([d3.min(data, (d) => d.s), d3.max(data, (d) => d.e)])
+    container_x2.domain([d3.min(data, (d) => d.s), d3.max(data, (d) => d.e)])
+    mover_x.domain([d3.min(data, (d) => d.s), d3.max(data, (d) => d.e)])
+
+    container_y.domain([0, maxy])
+    container_y2.domain([0, maxy])
+    mover_y.domain([0, rs.length])
+
+    gX = svg.append('g').call(container_ax) 
+                    .attr('transform', 'translate(30,'+(height)+')')
+    gY = svg.append('g').call(container_ay) 
+                    .attr('transform', 'translate(30, 0)')
+
+    container.selectAll('rect.job')
+            .data(data)
+            .enter()
+            .append('rect')
+            .attr('class',  'job')
+            .attr('x', (d) => container_x(d.s)) 
+            //.attr('y', (d) => container_y(maxy-d.l)) 
+            .attr('y', (d) => container_y(d.l)) 
+            .attr('width', (d) => container_x(d.e)-container_x(d.s))
+            //.attr('height', (d) => container_y(maxy-d.l)-container_y(maxy-d.l+0.8))
+            .attr('height', (d) => container_y(d.l)-container_y(d.l-0.8))
+            .attr('fill', (d) => color(d.id%120))
+            //.attr('fill', (d) => color(d.statusCode%120))
+            .on('mouseover', (d) => {
+                tooltip
+                    .style('visibility', 'visible')
+                    .style('top', event.pageY+40+'px')
+                    .style('left', event.pageX+'px')
+                    .html(`jobid: ${d.id}<br>clientName: ${d.clientName}<br>s: ${d.s}<br>e: ${d.e}<br>statusCode: ${d.statusCode}`)
+            })
+            .on('mouseout', () => {tooltip.style('visibility', 'hidden')})
+
+
+    brushArea = container.append('g')
+                .attr('class', 'brush')
+                .call(brush)
+
+    data.forEach(function (d,i) {
+        context.fillStyle = color(d.id%120)
+        //context.fillStyle = color(d.statusCode%120)
+        context.fillRect(
+            mover_x(d.s),
+            mover_y(d.l),
+            mover_x(d.e)-mover_x(d.s),
+            mover_y(d.l)-mover_y(d.l-0.8)
+        )
+    })
+})
+
+var zoom_view = false
+var last_extent = null
+function updateChart(){
+    if (d3.event.sourceEvent.type === 'end') return
+    console.log('trigger', d3.event.sourceEvent)
+    const extent = d3.event.selection
+    if (extent == last_extent) return
+
+    console.log(extent)
+    console.log('container', container_x)
+    //for (i in extent){
+        //extent[i][1] *= 3
+    //}
+    if (!extent){
+        container_x = container_x2.copy()
+        container_y = container_y2.copy()
+        zoom_view = false
+    }else{
+        console.log('x1', container_x2.invert(extent[0][0]))
+        console.log('x2', container_x2.invert(extent[0][1]))
+        console.log('y1', container_y2.invert(extent[1][0]))
+        console.log('y2', container_y2.invert(extent[1][1]))
+        zoom_view = true
+        if (zoom_view){
+            container_x.domain([container_x.invert(extent[0][0]), container_x.invert(extent[1][0])])
+            container_y.domain([container_y.invert(extent[0][1]), container_y.invert(extent[1][1])])
+        }else{
+            container_x.domain([container_x2.invert(extent[0][0]), container_x2.invert(extent[1][0])])
+            container_y.domain([container_y2.invert(extent[0][1]), container_y2.invert(extent[1][1])])
+        }
+        console.log('brushArea', brushArea)
+        brushArea.call(brush.move)
+    }
+
+    gX.transition().duration(1000).call(d3.axisBottom(container_x))
+    gY.transition().duration(1000).call(d3.axisLeft(container_y))
+    
+    console.log('ok')
+    //var x_dom = container_x.domain()
+    //var x_bounds = [x_dom[0], x_dom[x_dom.length-1]]
+    container
+        .selectAll('rect.job')
+        .transition().duration(1000)
+        .attr('x', (d) => container_x(d.s)) 
+        .attr('y', (d) => container_y(d.l)) 
+        .attr('width', (d) => container_x(d.e)-container_x(d.s))
+        .attr('height', (d) => container_y(d.l)-container_y(d.l-0.8))
+    last_extent = extent
+}
+</script>
+
+
+
+
